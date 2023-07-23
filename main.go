@@ -6,7 +6,8 @@ import (
 	"log"
 	"net"
 	"net/http"
-	"regexp"
+	//"regexp"
+	"net/url"
 	"os"
 	"os/exec"
 	"strings"
@@ -111,18 +112,18 @@ func handleHTTP(w http.ResponseWriter, req *http.Request) {
 	}
 
 	// 解析URL
-	re := regexp.MustCompile(`(\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3}):(\d{1,5})`)
-	match := re.FindStringSubmatch(get(id))
-	if match == nil {
+	u, err := url.Parse(get(id))
+	if err != nil {
 		w.WriteHeader(http.StatusBadRequest)
 		io.WriteString(w, "Error when parsing url:" + get(id))
 		log.Printf("Error when parsing url: %s\n", get(id))
 		return
 	}
 
-	// 获取主机和端口
-	raddr := match[0]
-
+	// 获取多播地址和端口
+	raddr := u.Host
+	
+	// 转换为 net.UDPAddr 类型
 	addr, err := net.ResolveUDPAddr("udp4", raddr)
 	if err != nil {
 		w.WriteHeader(http.StatusBadRequest)
