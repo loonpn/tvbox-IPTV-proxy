@@ -10,6 +10,7 @@ import (
 	"net/url"
 	"os"
 	"os/exec"
+	"regexp"
 	"strings"
 )
 
@@ -39,37 +40,55 @@ func rtspHandler(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// 解析URL
-	u, err := url.Parse(rtspURL)
-	if err != nil {
-		http.Error(w, "Error when parsing url: " + rtspURL, http.StatusBadRequest)
-		log.Printf("Error when parsing url: %s\n", rtspURL)
-		return
-	}
-	dstConn, err := net.Dial("tcp", u.Host + ":554") // 创建一个TCP连接，连接到RTSP服务器
-	if err != nil {
-		log.Println(err)
-		return
-	}
-	defer dstConn.Close()
+	var dstConn net.Conn // 声明一个TCP连接变量
+	//var err error // 声明一个错误变量
 
-	rtspReq := "DESCRIBE " + rtspURL + " RTSP/1.0\r\nCSeq: 1\r\nUser-Agent: Go-RTSP-Client\r\nAccept: application/sdp\r\n\r\n" // 构造一个RTSP DESCRIBE请求
-	_, err = dstConn.Write([]byte(rtspReq)) // 将RTSP请求发送到TCP连接中
-	if err != nil {
-		log.Println(err)
-		return
+	for { // 使用一个循环，直到找到最终的RTSP地址
+		// 解析URL
+		u, err := url.Parse(rtspURL)
+		if err != nil {
+			http.Error(w, "Error when parsing url: " + rtspURL, http.StatusBadRequest)
+			log.Printf("Error when parsing url: %s\n", rtspURL)
+			return
+		}
+		dstConn, err = net.Dial("tcp", u.Host + ":554") // 创建一个TCP连接，连接到RTSP服务器
+		if err != nil {
+			log.Println(err)
+			return
+		}
+		defer dstConn.Close()
+
+		rtspReq := fmt.Sprintf("DESCRIBE %s RTSP/1.0\r\nCSeq: 1\r\nUser-Agent: Go-RTSP-Client\r\nAccept: application/sdp\r\n\r\n", rtspURL) // 构造一个RTSP DESCRIBE请求
+		_, err = dstConn.Write([]byte(rtspReq)) // 将RTSP请求发送到TCP连接中
+		if err != nil {
+			log.Println(err)
+			return
+		}
+
+		buf := make([]byte, 2048) // 创建一个缓冲区，用于存储从TCP连接中读取的数据
+		n, err := dstConn.Read(buf) // 从TCP连接中读取数据，可能包含RTSP响应和SDP信息
+		if err != nil {
+			log.Println(err)
+			return
+		}
+
+		if strings.HasPrefix(string(buf[:n]), "RTSP/1.0 302") { // 检查是否收到了重定向响应
+			location := regexp.MustCompile(`Location: (.*)\r\n`).FindStringSubmatch(string(buf[:n])) // 从响应中提取Location字段的值
+			if len(location) > 1 {
+				rtspURL = location[1] // 更新新的RTSP地址
+				continue // 继续循环，直到找到最终的RTSP地址
+			} else {
+				http.Error(w, "Invalid Location header", http.StatusInternalServerError)
+				return
+			}
+		}
+
+		w.Header().Set("Content-Type", "application/sdp") // 设置HTTP响应头中的Content-Type字段，表示返回SDP格式的媒体信息
+
+		w.Write(buf[:n]) // 将从TCP连接中读取的数据写入到HTTP响应体中
+
+		break // 跳出循环，结束函数
 	}
-
-	buf := make([]byte, 2048) // 创建一个缓冲区，用于存储从TCP连接中读取的数据
-	n, err := dstConn.Read(buf) // 从TCP连接中读取数据，可能包含RTSP响应和SDP信息
-	if err != nil {
-		log.Println(err)
-		return
-	}
-
-	w.Header().Set("Content-Type", "application/sdp") // 设置HTTP响应头中的Content-Type字段，表示返回SDP格式的媒体信息
-
-	w.Write(buf[:n]) // 将从TCP连接中读取的数据写入到HTTP响应体中
 }
 
 // 定义一个函数，使用shell命令，从sqlite数据库文件中读取json数据，并保存到全局变量channelMap中
