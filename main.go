@@ -30,7 +30,7 @@ type Channel struct {
 }
 
 func add(id string, url1 string) {
-	tokens[id] = url1
+	channelList[id] = url1
 }
 
 func get(id string) string {
@@ -43,21 +43,17 @@ func existId(id string) bool {
 }
 
 
-func readFile(path, cmd string) (sql.Rows, error) {
+func readFile(path, cmd string) error {
     db, err := sql.Open("sqlite3", path)
   if err != nil {
-    return nil, err
+    return err
   }
   defer db.Close()
   rows, err := db.Query(cmd)
   if err != nil {
-    return nil, err
+    return err
   }
   defer rows.Close()
-  return rows, nil
-}
-
-func parseJson(rows sql.Rows) err {
   for rows.Next() {
     var data string
     err = rows.Scan(&data)
@@ -72,7 +68,7 @@ func parseJson(rows sql.Rows) err {
     }
     // 输出结果
     for _, c := range channels {
-      add(strings.TrimSpace(c.ChannelName）, c.ChannelURL)
+      add(strings.TrimSpace(c.ChannelName), c.ChannelURL)
     }
   }
   err = rows.Err()
@@ -96,7 +92,7 @@ func handleHTTP(w http.ResponseWriter, req *http.Request) {
 		io.WriteString(w, "Channel ID not found")
 		return
   }
-  pattern := `(\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3}):(\d{1,5})`
+  pattern := regexp.MustCompile("(\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3}):(\d{1,5})")
   match := re.FindStringSubmatch(get(id))
   if match == nil {
     w.WriteHeader(http.StatusBadRequest)
@@ -133,16 +129,12 @@ func main(){
 	}
 	flag.Parse()
   
-  rows, err := readFile("/data/data/com.huawei.channellist.contentprovider/databases/channelURL.db", "SELECT livechannels FROM channleList")
-  if err != nil {
-    log.Fatal(err)
-  }
-  err = parseJson(rows)
+  err := readFile("/data/data/com.huawei.channellist.contentprovider/databases/channelURL.db", "SELECT livechannels FROM channleList")
   if err != nil {
     log.Fatal(err)
   }
 
-  	inf, err = net.InterfaceByName(*iface)
+  inf, err = net.InterfaceByName(*iface)
 	if err != nil {
 		log.Fatal(err)
 		return
