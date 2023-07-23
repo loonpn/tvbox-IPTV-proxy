@@ -45,7 +45,7 @@ func rtspHandler(w http.ResponseWriter, r *http.Request) {
 	}
 	defer client.Close()
 
-	session, err := client.Session() // 获取RTSP会话信息
+	session, err := client.Describe() // 获取RTSP会话信息
 	if err != nil {
 		log.Println(err)
 		return
