@@ -51,14 +51,16 @@ func rtspHandler(w http.ResponseWriter, r *http.Request) {
 			log.Printf("Error when parsing url: %s\n", rtspURL)
 			return
 		}
-		dstConn, err = net.Dial("udp", strings.Replace(u.Host, ":554", "", -1) + ":554") // 创建一个udp连接，连接到RTSP服务器
+		//dstConn, err = net.Dial("udp", strings.Replace(u.Host, ":554", "", -1) + ":554") // 创建一个udp连接，连接到RTSP服务器
+		dstConn, err = net.Dial("tcp", strings.Replace(u.Host, ":554", "", -1) + ":554") // 创建一个udp连接，连接到RTSP服务器
 		if err != nil {
 			log.Println(err)
 			return
 		}
 		defer dstConn.Close()
 
-		rtspReq := "DESCRIBE " + rtspURL + " RTSP/1.0\r\nCSeq: 1\r\nUser-Agent: Go-RTSP-Client\r\nAccept: application/sdp\r\nTransport:RTP/AVP;unicast\r\n\r\n" // 构造一个RTSP DESCRIBE请求
+		//rtspReq := "DESCRIBE " + rtspURL + " RTSP/1.0\r\nCSeq: 1\r\nUser-Agent: Go-RTSP-Client\r\nAccept: application/sdp\r\nTransport:RTP/AVP;unicast\r\n\r\n" // 构造一个RTSP DESCRIBE请求
+		rtspReq := "DESCRIBE " + rtspURL + " RTSP/1.0\r\nCSeq: 1\r\nUser-Agent: Go-RTSP-Client\r\nAccept: application/sdp\r\n\r\n" // 构造一个RTSP DESCRIBE请求
 		_, err = dstConn.Write([]byte(rtspReq)) // 将RTSP请求发送到UDP连接中
 		if err != nil {
 			log.Println(err)
@@ -66,7 +68,8 @@ func rtspHandler(w http.ResponseWriter, r *http.Request) {
 		}
 
 		buf := make([]byte, 2048) // 创建一个缓冲区，用于存储从UDP连接中读取的数据
-		n, _, err := dstConn.(*net.UDPConn).ReadFrom(buf) // 从TCP连接中读取数据，可能包含RTSP响应和SDP信息
+		n,err := dstConn.Read(buf) // 从TCP连接中读取数据，可能包含RTSP响应和SDP信息
+		//n, _, err := dstConn.(*net.UDPConn).ReadFrom(buf) // 从TCP连接中读取数据，可能包含RTSP响应和SDP信息
 		if err != nil {
 			log.Println(err)
 			return
