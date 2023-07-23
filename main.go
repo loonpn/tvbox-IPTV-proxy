@@ -15,11 +15,11 @@ import (
 )
 
 var (
-	path = flag.String("path", "/data/data/com.huawei.channellist.contentprovider/databases/channelURL.db", "path to the database file")
-	sqlfile  = flag.String("sqlfile", "/data/local/output.sql", "SQL file to execute")
-	channelList map[string]string
+	path = flag.String("path", "/data/data/com.huawei.channellist.contentprovider/databases/channelURL.db", "Path to the database file")
 	addr = flag.String("l", ":18000", "Listening address")
 	iface = flag.String("i", "eth0", "Listening multicast interface")
+	sqlfile  = flag.String("sqlfile", "/data/local/output.sql", "SQL file to execute")
+	channelList map[string]string
 	inf *net.Interface
 )
 
@@ -81,6 +81,7 @@ func handleHTTP(w http.ResponseWriter, req *http.Request) {
 	if req.Method != http.MethodGet {
 		w.WriteHeader(http.StatusMethodNotAllowed)
 		io.WriteString(w, "Only GET method is allowed")
+		log.Println("Only GET method is allowed")
 		return
 	}
 
@@ -88,13 +89,15 @@ func handleHTTP(w http.ResponseWriter, req *http.Request) {
 	id := req.FormValue("id")
 	if id == "" {
 		w.WriteHeader(http.StatusBadRequest)
-		io.WriteString(w, "Missing id parameter")
+		io.WriteString(w, "Missing id parameter: id")
+		log.Println("Missing id parameter: id")
 		return
 	}
 
 	if !existId(id) {
 		w.WriteHeader(http.StatusBadRequest)
 		io.WriteString(w, "Channel ID not found")
+		log.Printf("Channel ID not found: %s\n", id)
 		return
 	}
 
@@ -104,6 +107,7 @@ func handleHTTP(w http.ResponseWriter, req *http.Request) {
 	if match == nil {
 		w.WriteHeader(http.StatusBadRequest)
 		io.WriteString(w, "Error when parsing url:" + get(id))
+		log.Printf("Error when parsing url: %s\n", get(id))
 		return
 	}
 
@@ -114,6 +118,7 @@ func handleHTTP(w http.ResponseWriter, req *http.Request) {
 	if err != nil {
 		w.WriteHeader(http.StatusBadRequest)
 		io.WriteString(w, err.Error())
+		log.Printf("%v\n", err)
 		return
 	}
 
@@ -121,6 +126,7 @@ func handleHTTP(w http.ResponseWriter, req *http.Request) {
 	if err != nil {
 		w.WriteHeader(http.StatusInternalServerError)
 		io.WriteString(w, err.Error())
+		log.Printf("%v\n", err)
 		return
 	}
 	defer conn.Close()
@@ -134,7 +140,7 @@ func handleHTTP(w http.ResponseWriter, req *http.Request) {
 	// 复制数据到响应写入器，并检查错误
 	n, err := io.Copy(w, conn)
 	if err != nil {
-		log.Printf("Error when copying data: %v\n", err)
+		log.Printf("Error when copying data: %v, raddr = %s, addr =  %s\n", err, raddr, addr)
 		return
 	}
 	log.Printf("%s %s %d [%s]", req.RemoteAddr, req.URL.Path, n, req.UserAgent())
