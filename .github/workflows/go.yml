@@ -5,9 +5,9 @@ name: Go
 
 on:
   push:
-    branches: [ "codespace-loonpn-turbo-train-p4j6v57pr5ghrqp7" ]
+    branches: [ "codespace-loonpn-fluffy-space-waddle-x7546gr9jxpf6rp4" ]
   pull_request:
-    branches: [ "codespace-loonpn-turbo-train-p4j6v57pr5ghrqp7" ]
+    branches: [ "codespace-loonpn-fluffy-space-waddle-x7546gr9jxpf6rp4" ]
 
 jobs:
 
