@@ -66,7 +66,7 @@ func rtspHandler(w http.ResponseWriter, r *http.Request) {
 		}
 
 		buf := make([]byte, 2048) // 创建一个缓冲区，用于存储从UDP连接中读取的数据
-		n, err := dstConn.ReadForm(buf) // 从TCP连接中读取数据，可能包含RTSP响应和SDP信息
+		n, err := dstConn.ReadFrom(buf) // 从TCP连接中读取数据，可能包含RTSP响应和SDP信息
 		if err != nil {
 			log.Println(err)
 			return
