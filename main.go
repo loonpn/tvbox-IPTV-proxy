@@ -12,6 +12,7 @@ import (
 	"os"
 	"os/exec"
 	"strings"
+	"github.com/nareix/joy4/format/rtsp"
 )
 
 // 定义一个Channel结构体，用于存储频道信息
@@ -40,38 +41,35 @@ func rtspHandler(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "Invalid channel name", http.StatusBadRequest)
 		return
 	}
-	rtspReq, err := http.NewRequest("DESCRIBE", rtspURL, nil) // 创建一个RTSP请求，方法为DESCRIBE，用于获取媒体信息
+	
+	client, err := rtsp.Dial(rtspURL) // 创建一个RTSP客户端，连接到RTSP服务器
 	if err != nil {
 		log.Println(err)
 		return
 	}
-	rtspReq.Header.Set("CSeq", "1") // 设置RTSP请求头中的CSeq字段，表示请求序号为1
-	rtspReq.Header.Set("User-Agent", "Apache-HttpClient/UNAVAILABLE (java 1.4)") // 设置RTSP请求头中的User-Agent字段
-	rtspReq.Header.Set("Accept", "application/sdp") // 设置RTSP请求头中的Accept字段，表示接受SDP格式的媒体信息
+	defer client.Close()
 
-	dstConn, err := net.Dial("tcp", dstAddr) // 创建一个到RTSP服务器的TCP连接
-	if err != nil {
-		log.Println(err)
-		return
-	}
-	defer dstConn.Close()
-
-	err = rtspReq.Write(dstConn) // 将RTSP请求写入到TCP连接中
+	session, err := client.Session() // 获取RTSP会话信息
 	if err != nil {
 		log.Println(err)
 		return
 	}
 
-	rtspRes, err := http.ReadResponse(bufio.NewReader(dstConn), rtspReq) // 从TCP连接中读取RTSP响应
+	err = client.SetupAll() // 发送SETUP请求，为每个流设置RTP/RTCP连接
 	if err != nil {
 		log.Println(err)
 		return
 	}
-	defer rtspRes.Body.Close()
+
+	err = client.Play() // 发送PLAY请求，开始接收数据
+	if err != nil {
+		log.Println(err)
+		return
+	}
 
 	w.Header().Set("Content-Type", "application/sdp") // 设置HTTP响应头中的Content-Type字段，表示返回SDP格式的媒体信息
 
-	io.Copy(w, rtspRes.Body) // 将RTSP响应体复制到HTTP响应体中
+	w.Write([]byte(session.String())) // 将RTSP会话信息转换为SDP格式，并写入到HTTP响应体中
 }
 
 // 定义一个函数，使用shell命令，从sqlite数据库文件中读取json数据，并保存到全局变量channelMap中
