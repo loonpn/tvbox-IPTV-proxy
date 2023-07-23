@@ -40,7 +40,7 @@ func rtspHandler(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	var dstConn net.UDPConn // 声明一个TCP连接变量
+	var dstConn net.Conn // 声明一个TCP连接变量
 	//var err error // 声明一个错误变量
 
 	for { // 使用一个循环，直到找到最终的RTSP地址
@@ -51,7 +51,7 @@ func rtspHandler(w http.ResponseWriter, r *http.Request) {
 			log.Printf("Error when parsing url: %s\n", rtspURL)
 			return
 		}
-		dstConn, err = net.Dial("udp4", strings.Replace(u.Host, ":554", "", -1) + ":554") // 创建一个udp连接，连接到RTSP服务器
+		dstConn, err = net.Dial("udp", strings.Replace(u.Host, ":554", "", -1) + ":554") // 创建一个udp连接，连接到RTSP服务器
 		if err != nil {
 			log.Println(err)
 			return
@@ -66,7 +66,7 @@ func rtspHandler(w http.ResponseWriter, r *http.Request) {
 		}
 
 		buf := make([]byte, 2048) // 创建一个缓冲区，用于存储从UDP连接中读取的数据
-		n, _, err := dstConn.ReadFrom(buf) // 从TCP连接中读取数据，可能包含RTSP响应和SDP信息
+		n, _, err := dstConn.(*net.UDPConn).ReadFrom(buf) // 从TCP连接中读取数据，可能包含RTSP响应和SDP信息
 		if err != nil {
 			log.Println(err)
 			return
