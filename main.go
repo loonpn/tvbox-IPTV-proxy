@@ -40,7 +40,7 @@ func rtspHandler(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	var dstConn net.Conn // 声明一个TCP连接变量
+	var dstConn net.UDPConn // 声明一个TCP连接变量
 	//var err error // 声明一个错误变量
 
 	for { // 使用一个循环，直到找到最终的RTSP地址
