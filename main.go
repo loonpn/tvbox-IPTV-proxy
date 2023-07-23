@@ -4,7 +4,6 @@ import (
 	"encoding/json"
 	"errors"
 	"flag"
-	"fmt"
 	"log"
 	"net"
 	"net/http"
@@ -39,14 +38,21 @@ func rtspHandler(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	dstConn, err := net.Dial("tcp", rtspURL) // 创建一个TCP连接，连接到RTSP服务器
+	// 解析URL
+	u, err := url.Parse(rtspURL)
+	if err != nil {
+		http.Error(w, "Error when parsing url: " + rtspURL, http.StatusBadRequest)
+		log.Printf("Error when parsing url: %s\n", rtspURL)
+		return
+	}
+	dstConn, err := net.Dial("tcp", u.Host + ":554") // 创建一个TCP连接，连接到RTSP服务器
 	if err != nil {
 		log.Println(err)
 		return
 	}
 	defer dstConn.Close()
 
-	rtspReq := fmt.Sprintf("DESCRIBE %s RTSP/1.0\r\nCSeq: 1\r\nUser-Agent: Go-RTSP-Client\r\nAccept: application/sdp\r\n\r\n", rtspURL) // 构造一个RTSP DESCRIBE请求
+	rtspReq := "DESCRIBE " + rtspURL + " RTSP/1.0\r\nCSeq: 1\r\nUser-Agent: Go-RTSP-Client\r\nAccept: application/sdp\r\n\r\n" // 构造一个RTSP DESCRIBE请求
 	_, err = dstConn.Write([]byte(rtspReq)) // 将RTSP请求发送到TCP连接中
 	if err != nil {
 		log.Println(err)
