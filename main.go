@@ -51,10 +51,60 @@ func rtspHandler(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	err = client.SetupAll() // 发送SETUP请求，为每个流设置RTP/RTCP连接
+	// 创建一个RTP连接，并监听客户端发送的RTP数据
+	rtpConn, err := net.ListenPacket("udp", ":0")
 	if err != nil {
 		log.Println(err)
 		return
+	}
+	defer rtpConn.Close()
+
+	rtpAddr := rtpConn.LocalAddr().(*net.UDPAddr)
+	rtpPort := rtpAddr.Port
+
+	go func() {
+	  buf := make([]byte, 2048)
+	  for {
+	    n, _, err := rtpConn.ReadFrom(buf)
+	    if err != nil {
+	      log.Println(err)
+	      break
+	    }
+	    // handle RTP data in buf[:n]
+	  }
+	}()
+
+	// 创建一个RTCP连接，并监听客户端发送的RTCP数据
+	rtcpConn, err := net.ListenPacket("udp", ":0")
+	if err != nil {
+		log.Println(err)
+		return
+	}
+	defer rtcpConn.Close()
+
+	rtcpAddr := rtcpConn.LocalAddr().(*net.UDPAddr)
+	rtcpPort := rtcpAddr.Port
+
+	go func() {
+	  buf := make([]byte, 2048)
+	  for {
+	    n, _, err := rtcpConn.ReadFrom(buf)
+	    if err != nil {
+	      log.Println(err)
+	      break
+	    }
+	    // handle RTCP data in buf[:n]
+	  }
+	}()
+
+	// 发送SETUP请求，为每个流设置RTP/RTCP连接，并指定本地端口
+	for _, media := range sdp {
+	  transport := fmt.Sprintf("RTP/AVP;unicast;client_port=%d-%d", rtpPort, rtcpPort)
+	  err = client.Setup(media.ID, transport)
+	  if err != nil {
+	    log.Println(err)
+	    return
+	  }
 	}
 
 	err = client.Play() // 发送PLAY请求，开始接收数据
@@ -65,7 +115,15 @@ func rtspHandler(w http.ResponseWriter, r *http.Request) {
 
 	w.Header().Set("Content-Type", "application/sdp") // 设置HTTP响应头中的Content-Type字段，表示返回SDP格式的媒体信息
 
-	w.Write([]byte(sdp.String())) // 将RTSP会话信息转换为SDP格式，并写入到HTTP响应体中
+	var sdpStr string
+	for _, media := range sdp {
+	  media.Connection = &sdp.ConnectionData{
+	    Address: localAddr.IP.String(),
+	  }
+	  media.Port = rtpPort
+	  sdpStr += media.String()
+	}
+	w.Write([]byte(sdpStr)) // 将RTSP会话信息转换为SDP格式，并写入到HTTP响应体中
 }
 
 // 定义一个函数，使用shell命令，从sqlite数据库文件中读取json数据，并保存到全局变量channelMap中
