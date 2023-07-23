@@ -1,13 +1,10 @@
 package main
 
 import (
-	"bufio"
 	"encoding/json"
 	"errors"
 	"flag"
-	"io"
 	"log"
-	"net"
 	"net/http"
 	"os"
 	"os/exec"
@@ -34,7 +31,6 @@ var (
 
 // 定义一个HTTP处理器函数，用于将HTTP请求转换为RTSP请求，并发送到目标地址
 func rtspHandler(w http.ResponseWriter, r *http.Request) {
-	dstAddr := "183.59.168.27:554" // RTSP服务器的地址和端口
 	channelName := r.URL.Path[6:] // 获取主机1请求的频道名，去掉/rtsp/前缀
 	rtspURL, ok := channelMap[strings.Replace(channelName," ", "", -1)] // 根据频道名查找对应的RTSP地址，如果不存在，则返回错误
 	if !ok {
