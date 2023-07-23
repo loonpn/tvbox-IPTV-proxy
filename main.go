@@ -1,7 +1,9 @@
 package main
 
 import (
+	"bufio"
 	"encoding/json"
+	"errors"
 	"flag"
 	"io"
 	"log"
@@ -9,6 +11,7 @@ import (
 	"net/http"
 	"os"
 	"os/exec"
+	"strings"
 )
 
 // 定义一个Channel结构体，用于存储频道信息
@@ -32,7 +35,7 @@ var (
 func rtspHandler(w http.ResponseWriter, r *http.Request) {
 	dstAddr := "183.59.168.27:554" // RTSP服务器的地址和端口
 	channelName := r.URL.Path[6:] // 获取主机1请求的频道名，去掉/rtsp/前缀
-	rtspURL, ok := channelMap[channelName] // 根据频道名查找对应的RTSP地址，如果不存在，则返回错误
+	rtspURL, ok := channelMap[strings.Replace(channelName," ", "", -1)] // 根据频道名查找对应的RTSP地址，如果不存在，则返回错误
 	if !ok {
 		http.Error(w, "Invalid channel name", http.StatusBadRequest)
 		return
@@ -99,7 +102,7 @@ func readFile(dbpath, sqlpath string) error {
 		parts := strings.Split(channel.ChannelURL, "|") // 用 | 分割字符串
 		if len(parts) != 2 {
 			// 处理错误情况
-			return errors.New("Unable to split URL: " + channelURL)
+			return errors.New("Unable to split string with \"|\": " + channel.ChannelURL)
 		}
 		channelMap[strings.Replace(channel.ChannelName," ", "", -1)] = parts[1] // 将频道名和RTSP地址存储到映射关系中
 	}
