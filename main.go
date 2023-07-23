@@ -1,11 +1,10 @@
 package main
 
 import (
-	"bufio"
 	"encoding/json"
 	"errors"
 	"flag"
-	"io"
+	"fmt"
 	"log"
 	"net"
 	"net/http"
@@ -33,45 +32,37 @@ var (
 
 // 定义一个HTTP处理器函数，用于将HTTP请求转换为RTSP请求，并发送到目标地址
 func rtspHandler(w http.ResponseWriter, r *http.Request) {
-	dstAddr := "183.59.168.27:554" // RTSP服务器的地址和端口
 	channelName := r.URL.Path[6:] // 获取主机1请求的频道名，去掉/rtsp/前缀
-	rtspURL, ok := channelMap[strings.Replace(channelName," ", "", -1)] // 根据频道名查找对应的RTSP地址，如果不存在，则返回错误
+	rtspURL, ok := channelMap[strings.Replace(channelName, " ", "", -1)] // 根据频道名查找对应的RTSP地址，如果不存在，则返回错误
 	if !ok {
 		http.Error(w, "Invalid channel name", http.StatusBadRequest)
 		return
 	}
-	rtspReq, err := http.NewRequest("DESCRIBE", rtspURL, nil) // 创建一个RTSP请求，方法为DESCRIBE，用于获取媒体信息
-	if err != nil {
-		log.Println(err)
-		return
-	}
-	rtspReq.Header.Set("CSeq", "1") // 设置RTSP请求头中的CSeq字段，表示请求序号为1
-	rtspReq.Header.Set("User-Agent", "Apache-HttpClient/UNAVAILABLE (java 1.4)") // 设置RTSP请求头中的User-Agent字段
-	rtspReq.Header.Set("Accept", "application/sdp") // 设置RTSP请求头中的Accept字段，表示接受SDP格式的媒体信息
 
-	dstConn, err := net.Dial("tcp", dstAddr) // 创建一个到RTSP服务器的TCP连接
+	dstConn, err := net.Dial("tcp", rtspURL) // 创建一个TCP连接，连接到RTSP服务器
 	if err != nil {
 		log.Println(err)
 		return
 	}
 	defer dstConn.Close()
 
-	err = rtspReq.Write(dstConn) // 将RTSP请求写入到TCP连接中
+	rtspReq := fmt.Sprintf("DESCRIBE %s RTSP/1.0\r\nCSeq: 1\r\nUser-Agent: Go-RTSP-Client\r\nAccept: application/sdp\r\n\r\n", rtspURL) // 构造一个RTSP DESCRIBE请求
+	_, err = dstConn.Write([]byte(rtspReq)) // 将RTSP请求发送到TCP连接中
 	if err != nil {
 		log.Println(err)
 		return
 	}
 
-	rtspRes, err := http.ReadResponse(bufio.NewReader(dstConn), rtspReq) // 从TCP连接中读取RTSP响应
+	buf := make([]byte, 2048) // 创建一个缓冲区，用于存储从TCP连接中读取的数据
+	n, err := dstConn.Read(buf) // 从TCP连接中读取数据，可能包含RTSP响应和SDP信息
 	if err != nil {
 		log.Println(err)
 		return
 	}
-	defer rtspRes.Body.Close()
 
 	w.Header().Set("Content-Type", "application/sdp") // 设置HTTP响应头中的Content-Type字段，表示返回SDP格式的媒体信息
 
-	io.Copy(w, rtspRes.Body) // 将RTSP响应体复制到HTTP响应体中
+	w.Write(buf[:n]) // 将从TCP连接中读取的数据写入到HTTP响应体中
 }
 
 // 定义一个函数，使用shell命令，从sqlite数据库文件中读取json数据，并保存到全局变量channelMap中
