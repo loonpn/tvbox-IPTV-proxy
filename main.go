@@ -51,7 +51,7 @@ func rtspHandler(w http.ResponseWriter, r *http.Request) {
 			log.Printf("Error when parsing url: %s\n", rtspURL)
 			return
 		}
-		dstConn, err = net.Dial("tcp", u.Host + ":554") // 创建一个TCP连接，连接到RTSP服务器
+		dstConn, err = net.Dial("tcp", strings.Replace(u.Host, ":554", "", -1) + ":554") // 创建一个TCP连接，连接到RTSP服务器
 		if err != nil {
 			log.Println(err)
 			return
