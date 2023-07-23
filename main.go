@@ -1,29 +1,17 @@
 package main
 
 import (
+	"encoding/json"
 	"flag"
 	"io"
 	"log"
 	"net"
 	"net/http"
-	//"regexp"
-	"net/url"
 	"os"
 	"os/exec"
-	"strings"
-	"encoding/json"
-	//"time"
 )
 
-var (
-	path = flag.String("path", "/data/data/com.huawei.channellist.contentprovider/databases/channelURL.db", "Path to the database file")
-	addr = flag.String("l", ":18000", "Listening address")
-	iface = flag.String("i", "eth0", "Listening multicast interface")
-	sqlfile  = flag.String("sqlfile", "/data/local/output.sql", "SQL file to execute")
-	channelList map[string]string
-	inf *net.Interface
-)
-
+// 定义一个Channel结构体，用于存储频道信息
 type Channel struct {
 	UserChannelID string `json:"UserChannelID"`
 	ChannelNo     string `json:"ChannelNo"`
@@ -33,37 +21,66 @@ type Channel struct {
 	Ext           string `json:"ext"`
 }
 
-func add(id string, url1 string) {
-	channelList[id] = url1
-}
+var (
+	dbpath = flag.String("dbpath", "/data/data/com.huawei.channellist.contentprovider/databases/channelURL.db", "Path to the database file")
+	port = flag.String("port", ":8080", "Listening port")
+	sqlpath  = flag.String("sqlpath", "/data/local/output.sql", "Path to the sql file")
+	channelMap map[string]string // 定义一个全局变量，用于存储频道名和RTSP地址的映射关系
+)
 
-func get(id string) string {
-	// 假设 channelList 是一个 map 类型的变量，存储多播地址和单播地址的对应关系
-	channelURL := channelList[id] // 获取多播地址和单播地址的组合字符串
-	parts := strings.Split(channelURL, "|") // 用 | 分割字符串
-	if len(parts) != 2 {
-		// 处理错误情况
-		log.Printf("get: invalid channel URL: %s", channelURL)
-		return ""
+// 定义一个HTTP处理器函数，用于将HTTP请求转换为RTSP请求，并发送到目标地址
+func rtspHandler(w http.ResponseWriter, r *http.Request) {
+	dstAddr := "183.59.168.27:554" // RTSP服务器的地址和端口
+	channelName := r.URL.Path[6:] // 获取主机1请求的频道名，去掉/rtsp/前缀
+	rtspURL, ok := channelMap[channelName] // 根据频道名查找对应的RTSP地址，如果不存在，则返回错误
+	if !ok {
+		http.Error(w, "Invalid channel name", http.StatusBadRequest)
+		return
 	}
-	return parts[1] // 返回单播地址
+	rtspReq, err := http.NewRequest("DESCRIBE", rtspURL, nil) // 创建一个RTSP请求，方法为DESCRIBE，用于获取媒体信息
+	if err != nil {
+		log.Println(err)
+		return
+	}
+	rtspReq.Header.Set("CSeq", "1") // 设置RTSP请求头中的CSeq字段，表示请求序号为1
+	rtspReq.Header.Set("User-Agent", "Apache-HttpClient/UNAVAILABLE (java 1.4)") // 设置RTSP请求头中的User-Agent字段
+	rtspReq.Header.Set("Accept", "application/sdp") // 设置RTSP请求头中的Accept字段，表示接受SDP格式的媒体信息
+
+	dstConn, err := net.Dial("tcp", dstAddr) // 创建一个到RTSP服务器的TCP连接
+	if err != nil {
+		log.Println(err)
+		return
+	}
+	defer dstConn.Close()
+
+	err = rtspReq.Write(dstConn) // 将RTSP请求写入到TCP连接中
+	if err != nil {
+		log.Println(err)
+		return
+	}
+
+	rtspRes, err := http.ReadResponse(bufio.NewReader(dstConn), rtspReq) // 从TCP连接中读取RTSP响应
+	if err != nil {
+		log.Println(err)
+		return
+	}
+	defer rtspRes.Body.Close()
+
+	w.Header().Set("Content-Type", "application/sdp") // 设置HTTP响应头中的Content-Type字段，表示返回SDP格式的媒体信息
+
+	io.Copy(w, rtspRes.Body) // 将RTSP响应体复制到HTTP响应体中
 }
 
-
-func existId(id string) bool {
-	_, ok := channelList[id]
-	return ok
-}
-
-
-func readFile(path, sqlfile string) error {	
-	sqlFile, err := os.Open(sqlfile)
+// 定义一个函数，使用shell命令，从sqlite数据库文件中读取json数据，并保存到全局变量channelMap中
+func readFile(dbpath, sqlpath string) error {
+	
+	sqlFile, err := os.Open(sqlpath)
 	if err != nil {
 		return err
 	}
 	defer sqlFile.Close()
 
-	cmd := exec.Command("sqlite3", path)
+	cmd := exec.Command("sqlite3", dbpath)
 
 	cmd.Stdin = sqlFile
 
@@ -78,128 +95,26 @@ func readFile(path, sqlfile string) error {
 		return err
 	}
 
-	for _, c := range channels {
-		add(strings.Replace(c.ChannelName," ", "", -1), c.ChannelURL)
+	for _, channel := range channels { // 遍历切片中的每个频道
+		parts := strings.Split(channel.ChannelURL, "|") // 用 | 分割字符串
+		if len(parts) != 2 {
+			// 处理错误情况
+			return errors.New("Unable to split URL: " + channelURL)
+		}
+		channelMap[strings.Replace(channel.ChannelName," ", "", -1)] = parts[1] // 将频道名和RTSP地址存储到映射关系中
 	}
 	return nil
 }
 
-func handleHTTP(w http.ResponseWriter, req *http.Request) {
-	req.ParseForm()
-
-	// 检查请求方法是否是GET
-	if req.Method != http.MethodGet {
-		w.WriteHeader(http.StatusMethodNotAllowed)
-		io.WriteString(w, "Only GET method is allowed")
-		log.Println("Only GET method is allowed")
-		return
-	}
-
-	// 检查id参数是否存在
-	id := req.FormValue("id")
-	if id == "" {
-		w.WriteHeader(http.StatusBadRequest)
-		io.WriteString(w, "Missing id parameter: id")
-		log.Println("Missing id parameter: id")
-		return
-	}
-
-	if !existId(id) {
-		w.WriteHeader(http.StatusBadRequest)
-		io.WriteString(w, "Channel ID not found")
-		log.Printf("Channel ID not found: %s\n", id)
-		return
-	}
-
-	// 解析URL
-	u, err := url.Parse(get(id))
-	if err != nil {
-		w.WriteHeader(http.StatusBadRequest)
-		io.WriteString(w, "Error when parsing url:" + get(id))
-		log.Printf("Error when parsing url: %s\n", get(id))
-		return
-	}
-
-	// 获取多播地址和端口
-	raddr := u.Host
-	
-	// 转换为 net.UDPAddr 类型
-	addr, err := net.ResolveUDPAddr("udp4", raddr)
-	if err != nil {
-		w.WriteHeader(http.StatusBadRequest)
-		io.WriteString(w, err.Error())
-		log.Printf("%v\n", err)
-		return
-	}
-
-	conn, err := net.ListenMulticastUDP("udp4", inf, addr)
-	if err != nil {
-		w.WriteHeader(http.StatusInternalServerError)
-		io.WriteString(w, err.Error())
-		log.Printf("%v\n", err)
-		return
-	}
-	defer conn.Close()
-	
-	// 建立一个单播连接，使用 map 中存储的单播地址
-	unicastAddr := get(id) // 假设这个函数可以从 map 中获取单播地址
-	uconn, err := net.Dial("udp4", unicastAddr)
-	if err != nil {
- 		w.WriteHeader(http.StatusInternalServerError)
-		io.WriteString(w, err.Error())
-		return
-	}
-	defer uconn.Close()
-	
-	// 设置连接超时时间
-	//conn.SetReadDeadline(time.Now().Add(10 * time.Second))
-
-	w.Header().Set("Content-Type", "application/octet-stream")
-	w.WriteHeader(http.StatusOK)
-
-	// 将数据从多播连接复制到单播连接
-	go func() {
-		_, err := io.Copy(uconn, conn)
-		if err != nil {
-			// 处理复制错误
-			log.Printf("handleHTTP: io.Copy error: %v", err)
-			return
-		}
-	}()
-
-	// 复制数据到响应写入器，并检查错误
-	n, err := io.Copy(w, conn)
-	if err != nil {
-		log.Printf("handleHTTP: io.Copy error: %v, raddr = %s, addr =  %s\n", err, raddr, addr)
-		return
-	}
-	log.Printf("%s %s %d [%s]", req.RemoteAddr, req.URL.Path, n, req.UserAgent())
-}
-
-func main(){
-	if os.Getppid() == 1 {
-		log.SetFlags(log.Flags() &^ (log.Ldate | log.Ltime))
-	} else {
-		log.SetFlags(log.Lshortfile | log.LstdFlags)
-	}
+func main() {
 	flag.Parse()
-	if *path == "" || *sqlfile == "" {
-		log.Println("Missing path or sqlfile parameters. Use default values.")
-	}
-	channelList = make(map[string]string)
-	err := readFile(*path, *sqlfile)
-	if err != nil {
-		log.Fatal(err)
-	}
-
-	inf, err = net.InterfaceByName(*iface)
+	channelMap = make(map[string]string) // 初始化频道映射关系
+	err := readFile(*dbpath, *sqlpath) // 读取数据库数据写入channelMap
 	if err != nil {
 		log.Fatal(err)
 		return
 	}
-
-	var mux http.ServeMux
-	mux.HandleFunc("/rtp", handleHTTP)
-
-	log.Fatal(http.ListenAndServe(*addr, &mux))
+	http.HandleFunc("/rtsp/", rtspHandler) // 注册一个HTTP处理器函数，用于处理/rtsp/路径的请求
+	log.Printf("Listening port %s\n", *port)
+	log.Fatal(http.ListenAndServe(*port, nil)) // 监听本地8080端口，并启动HTTP服务器
 }
