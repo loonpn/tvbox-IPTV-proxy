@@ -58,7 +58,7 @@ func rtspHandler(w http.ResponseWriter, r *http.Request) {
 		}
 		defer dstConn.Close()
 
-		rtspReq := fmt.Sprintf("DESCRIBE %s RTSP/1.0\r\nCSeq: 1\r\nUser-Agent: Go-RTSP-Client\r\nAccept: application/sdp\r\n\r\n", rtspURL) // 构造一个RTSP DESCRIBE请求
+		rtspReq := "DESCRIBE " + rtspURL + " RTSP/1.0\r\nCSeq: 1\r\nUser-Agent: Go-RTSP-Client\r\nAccept: application/sdp\r\n\r\n" // 构造一个RTSP DESCRIBE请求
 		_, err = dstConn.Write([]byte(rtspReq)) // 将RTSP请求发送到TCP连接中
 		if err != nil {
 			log.Println(err)
