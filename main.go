@@ -45,7 +45,7 @@ func rtspHandler(w http.ResponseWriter, r *http.Request) {
 	}
 	defer client.Close()
 
-	session, err := client.Describe() // 获取RTSP会话信息
+	sdp, err := client.Describe() // 获取RTSP会话信息
 	if err != nil {
 		log.Println(err)
 		return
@@ -65,7 +65,7 @@ func rtspHandler(w http.ResponseWriter, r *http.Request) {
 
 	w.Header().Set("Content-Type", "application/sdp") // 设置HTTP响应头中的Content-Type字段，表示返回SDP格式的媒体信息
 
-	w.Write([]byte(session.String())) // 将RTSP会话信息转换为SDP格式，并写入到HTTP响应体中
+	w.Write([]byte(sdp.SessionString(sdp))) // 将RTSP会话信息转换为SDP格式，并写入到HTTP响应体中
 }
 
 // 定义一个函数，使用shell命令，从sqlite数据库文件中读取json数据，并保存到全局变量channelMap中
