@@ -37,8 +37,17 @@ func add(id string, url1 string) {
 }
 
 func get(id string) string {
-	return channelList[id]
+	// 假设 channelList 是一个 map 类型的变量，存储多播地址和单播地址的对应关系
+	channelURL := channelList[id] // 获取多播地址和单播地址的组合字符串
+	parts := strings.Split(channelURL, "|") // 用 | 分割字符串
+	if len(parts) != 2 {
+		// 处理错误情况
+		log.Printf("get: invalid channel URL: %s", channelURL)
+		return ""
+	}
+	return parts[1] // 返回单播地址
 }
+
 
 func existId(id string) bool {
 	_, ok := channelList[id]
@@ -130,17 +139,37 @@ func handleHTTP(w http.ResponseWriter, req *http.Request) {
 		return
 	}
 	defer conn.Close()
-
+	
+	// 建立一个单播连接，使用 map 中存储的单播地址
+	unicastAddr := get(id) // 假设这个函数可以从 map 中获取单播地址
+	uconn, err := net.Dial("udp4", unicastAddr)
+	if err != nil {
+ 		w.WriteHeader(http.StatusInternalServerError)
+		io.WriteString(w, err.Error())
+		return
+	}
+	defer uconn.Close()
+	
 	// 设置连接超时时间
-	conn.SetReadDeadline(time.Now().Add(10 * time.Second))
+	//conn.SetReadDeadline(time.Now().Add(10 * time.Second))
 
 	w.Header().Set("Content-Type", "application/octet-stream")
 	w.WriteHeader(http.StatusOK)
 
+	// 将数据从多播连接复制到单播连接
+	go func() {
+		_, err := io.Copy(uconn, conn)
+		if err != nil {
+			// 处理复制错误
+			log.Printf("handleHTTP: io.Copy error: %v", err)
+			return
+		}
+	}()
+
 	// 复制数据到响应写入器，并检查错误
 	n, err := io.Copy(w, conn)
 	if err != nil {
-		log.Printf("Error when copying data: %v, raddr = %s, addr =  %s\n", err, raddr, addr)
+		log.Printf("handleHTTP: io.Copy error: %v, raddr = %s, addr =  %s\n", err, raddr, addr)
 		return
 	}
 	log.Printf("%s %s %d [%s]", req.RemoteAddr, req.URL.Path, n, req.UserAgent())
