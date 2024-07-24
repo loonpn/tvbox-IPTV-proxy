@@ -1,155 +1,147 @@
 package main
 
 import (
-  "flag"
-	"io"
+	"encoding/json"
+	"errors"
+	"flag"
 	"log"
 	"net"
 	"net/http"
+	"net/url"
 	"os"
-  "regexp"
+	"os/exec"
+	"regexp"
 	"strings"
-  "database/sql"
-  _ "github.com/mattn/go-sqlite3"
 )
+
+// 定义一个Channel结构体，用于存储频道信息
+type Channel struct {
+	UserChannelID string `json:"UserChannelID"`
+	ChannelNo     string `json:"ChannelNo"`
+	ChannelName   string `json:"ChannelName"`
+	ChannelURL    string `json:"ChannelURL"`
+	PreviewURL    string `json:"PreviewURL"`
+	Ext           string `json:"ext"`
+}
 
 var (
-  channelList map[string]string
-  addr = flag.String("l", ":18000", "Listening address")
-  iface = flag.String("i", "eth0", "Listening multicast interface")
-  inf *net.Interface
+	dbpath = flag.String("dbpath", "/data/data/com.huawei.channellist.contentprovider/databases/channelURL.db", "Path to the database file")
+	port = flag.String("port", ":8080", "Listening port")
+	sqlpath  = flag.String("sqlpath", "/data/local/output.sql", "Path to the sql file")
+	channelMap map[string]string // 定义一个全局变量，用于存储频道名和RTSP地址的映射关系
 )
 
-type Channel struct {
-    UserChannelID string `json:"UserChannelID"`
-    ChannelNo     string `json:"ChannelNo"`
-    ChannelName   string `json:"ChannelName"`
-    ChannelURL    string `json:"ChannelURL"`
-    PreviewURL    string `json:"PreviewURL"`
-    Ext           string `json:"ext"`
-}
-
-func add(id string, url1 string) {
-	tokens[id] = url1
-}
-
-func get(id string) string {
-	return channelList[id]
-}
-
-func existId(id string) bool {
-	_, ok := channelList[id]
-	return ok
-}
-
-
-func readFile(path, cmd string) (sql.Rows, error) {
-    db, err := sql.Open("sqlite3", path)
-  if err != nil {
-    return nil, err
-  }
-  defer db.Close()
-  rows, err := db.Query(cmd)
-  if err != nil {
-    return nil, err
-  }
-  defer rows.Close()
-  return rows, nil
-}
-
-func parseJson(rows sql.Rows) err {
-  for rows.Next() {
-    var data string
-    err = rows.Scan(&data)
-    if err != nil {
-      return err
-    }
-    // 解析JSON数组
-    var channels []Channel // Channel是定义的结构体类型
-    err = json.Unmarshal([]byte(data), &channels)
-    if err != nil {
-      return err
-    }
-    // 输出结果
-    for _, c := range channels {
-      add(strings.TrimSpace(c.ChannelName）, c.ChannelURL)
-    }
-  }
-  err = rows.Err()
-  if err != nil {
-    return err
-  }
-  return nil
-}
-
-func handleHTTP(w http.ResponseWriter, req *http.Request) {
-  req.ParseForm()
-	// 获取URL参数
-	id := r.FormValue("id")
-	if len(id) < 2 {
-		w.WriteHeader(http.StatusBadRequest)
-		io.WriteString(w, "No id specified")
+// 定义一个HTTP处理器函数，用于将HTTP请求转换为RTSP请求，并发送到目标地址
+func rtspHandler(w http.ResponseWriter, r *http.Request) {
+	channelName := r.URL.Path[6:] // 获取主机1请求的频道名，去掉/rtsp/前缀
+	rtspURL, ok := channelMap[strings.Replace(channelName, " ", "", -1)] // 根据频道名查找对应的RTSP地址，如果不存在，则返回错误
+	if !ok {
+		http.Error(w, "Invalid channel name", http.StatusBadRequest)
 		return
 	}
-  if !hasId(id) {
-    w.WriteHeader(http.StatusBadRequest)
-		io.WriteString(w, "Channel ID not found")
-		return
-  }
-  pattern := `(\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3}):(\d{1,5})`
-  match := re.FindStringSubmatch(get(id))
-  if match == nil {
-    w.WriteHeader(http.StatusBadRequest)
-		io.WriteString(w, "Error when parsing url:" + get(id))
-		return
-  }
-	raddr := match[1] + ":" + match[2]
-	addr, err := net.ResolveUDPAddr("udp4", raddr)
+
+	var dstConn net.Conn // 声明一个TCP连接变量
+	//var err error // 声明一个错误变量
+
+	for { // 使用一个循环，直到找到最终的RTSP地址
+		// 解析URL
+		u, err := url.Parse(rtspURL)
+		if err != nil {
+			http.Error(w, "Error when parsing url: " + rtspURL, http.StatusBadRequest)
+			log.Printf("Error when parsing url: %s\n", rtspURL)
+			return
+		}
+		//dstConn, err = net.Dial("udp", strings.Replace(u.Host, ":554", "", -1) + ":554") // 创建一个udp连接，连接到RTSP服务器
+		dstConn, err = net.Dial("tcp", strings.Replace(u.Host, ":554", "", -1) + ":554") // 创建一个udp连接，连接到RTSP服务器
+		if err != nil {
+			log.Println(err)
+			return
+		}
+		defer dstConn.Close()
+
+		//rtspReq := "DESCRIBE " + rtspURL + " RTSP/1.0\r\nCSeq: 1\r\nUser-Agent: Go-RTSP-Client\r\nAccept: application/sdp\r\nTransport:RTP/AVP;unicast\r\n\r\n" // 构造一个RTSP DESCRIBE请求
+		rtspReq := "DESCRIBE " + strings.Replace(rtspURL, ":554", "", -1) + " RTSP/1.0\r\nCSeq: 1\r\nUser-Agent: CTC RTSP/1.0\r\nAccept: application/sdp\r\n\r\n" // 构造一个RTSP DESCRIBE请求
+		_, err = dstConn.Write([]byte(rtspReq)) // 将RTSP请求发送到UDP连接中
+		if err != nil {
+			log.Println(err)
+			return
+		}
+
+		buf := make([]byte, 2048) // 创建一个缓冲区，用于存储从UDP连接中读取的数据
+		n,err := dstConn.Read(buf) // 从TCP连接中读取数据，可能包含RTSP响应和SDP信息
+		//n, _, err := dstConn.(*net.UDPConn).ReadFrom(buf) // 从TCP连接中读取数据，可能包含RTSP响应和SDP信息
+		if err != nil {
+			log.Println(err)
+			return
+		}
+
+		if strings.HasPrefix(string(buf[:n]), "RTSP/1.0 302") { // 检查是否收到了重定向响应
+			location := regexp.MustCompile(`Location: (.*)\r\n`).FindStringSubmatch(string(buf[:n])) // 从响应中提取Location字段的值
+			if len(location) > 1 {
+				rtspURL = location[1] // 更新新的RTSP地址
+				log.Println("RTSP/1.0 302" + rtspURL)
+				continue // 继续循环，直到找到最终的RTSP地址
+			} else {
+				http.Error(w, "Invalid Location header", http.StatusInternalServerError)
+				return
+			}
+		}
+		if strings.HasPrefix(string(buf[:n]), "RTSP/1.0 403") {
+			http.Error(w, "Remote server response: 403 Forbidden", http.StatusInternalServerError)
+			return
+		}
+		w.Header().Set("Content-Type", "application/sdp") // 设置HTTP响应头中的Content-Type字段，表示返回SDP格式的媒体信息
+
+		w.Write(buf[:n]) // 将从TCP连接中读取的数据写入到HTTP响应体中
+
+		break // 跳出循环，结束函数
+	}
+}
+
+// 定义一个函数，使用shell命令，从sqlite数据库文件中读取json数据，并保存到全局变量channelMap中
+func readFile(dbpath, sqlpath string) error {
+	
+	sqlFile, err := os.Open(sqlpath)
 	if err != nil {
-		w.WriteHeader(http.StatusBadRequest)
-		io.WriteString(w, err.Error())
-		return
+		return err
 	}
+	defer sqlFile.Close()
 
-	conn, err := net.ListenMulticastUDP("udp4", inf, addr)
+	cmd := exec.Command("sqlite3", dbpath)
+
+	cmd.Stdin = sqlFile
+
+	output, err := cmd.Output()
 	if err != nil {
-		w.WriteHeader(http.StatusInternalServerError)
-		io.WriteString(w, err.Error())
-		return
+		return err
 	}
-	defer conn.Close()
 
-	w.Header().Set("Content-Type", "application/octet-stream")
-	w.WriteHeader(http.StatusOK)
-	n, err := io.Copy(w, conn)
-	log.Printf("%s %s %d [%s]", req.RemoteAddr, req.URL.Path, n, req.UserAgent())
+	var channels []Channel 
+	err = json.Unmarshal([]byte(output), &channels)
+	if err != nil {
+		return err
+	}
+
+	for _, channel := range channels { // 遍历切片中的每个频道
+		parts := strings.Split(channel.ChannelURL, "|") // 用 | 分割字符串
+		if len(parts) != 2 {
+			// 处理错误情况
+			return errors.New("Unable to split string with \"|\": " + channel.ChannelURL)
+		}
+		channelMap[strings.Replace(channel.ChannelName," ", "", -1)] = parts[1] // 将频道名和RTSP地址存储到映射关系中
+	}
+	return nil
 }
 
-func main(){
-  if os.Getppid() == 1 {
-		log.SetFlags(log.Flags() &^ (log.Ldate | log.Ltime))
-	} else {
-		log.SetFlags(log.Lshortfile | log.LstdFlags)
-	}
+func main() {
 	flag.Parse()
-  
-  rows, err := readFile("/data/data/com.huawei.channellist.contentprovider/databases/channelURL.db", "SELECT livechannels FROM channleList")
-  if err != nil {
-    log.Fatal(err)
-  }
-  err = parseJson(rows)
-  if err != nil {
-    log.Fatal(err)
-  }
-
-  	inf, err = net.InterfaceByName(*iface)
+	channelMap = make(map[string]string) // 初始化频道映射关系
+	err := readFile(*dbpath, *sqlpath) // 读取数据库数据写入channelMap
 	if err != nil {
 		log.Fatal(err)
 		return
 	}
-
-	var mux http.ServeMux
-	mux.HandleFunc("/rtp", handleHTTP)
-
-	log.Fatal(http.ListenAndServe(*addr, &mux))
+	http.HandleFunc("/rtsp/", rtspHandler) // 注册一个HTTP处理器函数，用于处理/rtsp/路径的请求
+	log.Printf("Listening port %s\n", *port)
+	log.Fatal(http.ListenAndServe(*port, nil)) // 监听本地8080端口，并启动HTTP服务器
 }
