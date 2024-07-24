@@ -14,7 +14,7 @@ import (
 	"strings"
 )
 
-// 定义一个Channel结构体，用于存储频道信息
+// Channel结构体用于存储频道信息
 type Channel struct {
 	UserChannelID string `json:"UserChannelID"`
 	ChannelNo     string `json:"ChannelNo"`
@@ -25,23 +25,30 @@ type Channel struct {
 }
 
 var (
-	dbpath = flag.String("dbpath", "/data/data/com.huawei.channellist.contentprovider/databases/channelURL.db", "Path to the database file")
+	dbpath = flag.String("dbpath", "/data/data/com.huawei.channellist.contentprovider/databases/channelURL.db", "Path to the database file") // 华为机顶盒的频道保存目录
 	port = flag.String("port", ":8080", "Listening port")
 	sqlpath  = flag.String("sqlpath", "/data/local/output.sql", "Path to the sql file")
-	channelMap map[string]string // 定义一个全局变量，用于存储频道名和RTSP地址的映射关系
+	channelMap map[string]string // 用于存储频道名和RTSP地址的映射关系
 )
 
-// 定义一个HTTP处理器函数，用于将HTTP请求转换为RTSP请求，并发送到目标地址
+// HTTP处理器函数，用于将HTTP请求转换为RTSP请求，并发送到目标地址
 func rtspHandler(w http.ResponseWriter, r *http.Request) {
 	channelName := r.URL.Path[6:] // 获取主机1请求的频道名，去掉/rtsp/前缀
+	if channelMap == nil {
+		channelMap = make(map[string]string) // 初始化频道映射关系
+		err := readFile(*dbpath, *sqlpath) // 读取数据库数据写入channelMap
+		if err != nil {
+			log.Fatal(err)
+			return
+		}
+	}
 	rtspURL, ok := channelMap[strings.Replace(channelName, " ", "", -1)] // 根据频道名查找对应的RTSP地址，如果不存在，则返回错误
 	if !ok {
 		http.Error(w, "Invalid channel name", http.StatusBadRequest)
 		return
 	}
 
-	var dstConn net.Conn // 声明一个TCP连接变量
-	//var err error // 声明一个错误变量
+	var dstConn net.Conn 
 
 	for { // 使用一个循环，直到找到最终的RTSP地址
 		// 解析URL
@@ -98,7 +105,7 @@ func rtspHandler(w http.ResponseWriter, r *http.Request) {
 	}
 }
 
-// 定义一个函数，使用shell命令，从sqlite数据库文件中读取json数据，并保存到全局变量channelMap中
+// 使用shell命令，从sqlite数据库文件中读取json数据，并保存到全局变量channelMap中
 func readFile(dbpath, sqlpath string) error {
 	
 	sqlFile, err := os.Open(sqlpath)
@@ -135,12 +142,6 @@ func readFile(dbpath, sqlpath string) error {
 
 func main() {
 	flag.Parse()
-	channelMap = make(map[string]string) // 初始化频道映射关系
-	err := readFile(*dbpath, *sqlpath) // 读取数据库数据写入channelMap
-	if err != nil {
-		log.Fatal(err)
-		return
-	}
 	http.HandleFunc("/rtsp/", rtspHandler) // 注册一个HTTP处理器函数，用于处理/rtsp/路径的请求
 	log.Printf("Listening port %s\n", *port)
 	log.Fatal(http.ListenAndServe(*port, nil)) // 监听本地8080端口，并启动HTTP服务器
