@@ -1,6 +1,15 @@
 # tvbox-IPTV-proxy
 安卓机顶盒通过光猫IPTV拨号，读取机顶盒直播源组播地址并在局域网内代理，实现一号多终端。
 ## 使用方法
-1.使用本项目提供的 Github Action 编译。
-2.将编译后的文件放到机顶盒 /data/local 目录下，chmod +x 添加可执行权限。
-3.在 /system/etc/install-recovery.sh 文件中添加 "/data/local/myapp"。
+- 使用本项目提供的 Github Action 编译。
+- 将编译后的文件放到机顶盒 /data/local 目录下，chmod +x 添加可执行权限。
+- 在 /system/etc/install-recovery.sh 文件中添加 "/data/local/myapp"。
+- 启动机顶盒等待认证完成，访问 "http://机顶盒IP:8080/rtsp/频道名称" 可播放对应频道。
+## 设置光猫
+### 方法一：绑定端口
+- 在光猫的 Other 网络接口中选择 Route 模式，填写用户名和密码保存，勾选DHCP。
+### 方法二：路由模式
+- 勾选全路由模式。
+- 在光猫的 Other 网络接口中选择 Route 模式，填写用户名和密码保存，勾选DHCP，取消勾选所有 LAN。
+- 在光猫的 Other 网络接口中取消勾选所有 LAN。
+- 在路由表界面添加：183.59.0.0/16、59.37.0.0/16、125.88.0.0/16（仅限广东地区），接口选择Other。
